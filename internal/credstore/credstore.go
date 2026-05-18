@@ -4,7 +4,12 @@
 // for full design rationale.
 package credstore
 
-import "strings"
+import (
+	"errors"
+	"strings"
+
+	"github.com/zalando/go-keyring"
+)
 
 // ServiceName is the OS-keyring service-string under which tuxlink-pat stores
 // its WL2K credentials. Convention per spec §4.2: hardcoded fork-namespaced
@@ -27,3 +32,37 @@ func NormalizeAccount(callsign string) (string, bool) {
 	}
 	return strings.ToUpper(trimmed), true
 }
+
+// Get looks up the WL2K password for the given callsign in the OS keyring.
+//
+// Returns:
+//   - (pw, true, nil) on hit with a non-empty stored password.
+//   - ("", false, nil) on:
+//   - empty/whitespace-only callsign (no backend call; short-circuit)
+//   - keyring entry not found (keyring.ErrNotFound mapped to clean miss)
+//   - empty-string stored password (treated as miss per spec §3.2 / R3 F4)
+//   - ("", false, ErrLocked) when the keyring is locked (operator needs to unlock).
+//   - ("", false, ErrUnavailable) when D-Bus is unreachable or secret-service
+//     is not installed.
+//   - ("", false, <other err>) for unclassified errors (caller logs + falls
+//     through per per-call-site rules in spec §3.5).
+func Get(callsign string) (string, bool, error) {
+	account, ok := NormalizeAccount(callsign)
+	if !ok {
+		return "", false, nil
+	}
+	pw, err := keyring.Get(ServiceName, account)
+	if err != nil {
+		if errors.Is(err, keyring.ErrNotFound) {
+			return "", false, nil
+		}
+		return "", false, classifyErr(err)
+	}
+	if pw == "" {
+		return "", false, nil
+	}
+	return pw, true, nil
+}
+
+// classifyErr stub for now; full classification added in Task 2.11.
+func classifyErr(err error) error { return err }
