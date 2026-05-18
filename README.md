@@ -1,92 +1,87 @@
-<a href="http://getpat.io"><img src="https://raw.githubusercontent.com/la5nta/pat-website/gh-pages/img/logo.png" width="128" ></a>
+# tuxlink-pat
 
-[![Build status](https://github.com/la5nta/pat/actions/workflows/go.yaml/badge.svg)](https://github.com/la5nta/pat/actions)
-[![Go Report Card](https://goreportcard.com/badge/github.com/la5nta/pat)](https://goreportcard.com/report/github.com/la5nta/pat)
-[![Liberapay Patreons](http://img.shields.io/liberapay/patrons/la5nta.svg?logo=liberapay)](https://liberapay.com/la5nta)
+A tuxlink-maintained fork of [`la5nta/pat`](https://github.com/la5nta/pat) — the Pat Winlink client.
 
-## Overview
+This fork exists to support [tuxlink](https://github.com/cameronzucker/tuxlink) (a Linux-native Tauri Winlink client that wraps Pat). Tuxlink consumes `tuxlink-pat` as a git submodule and builds Pat into its AppImage release artifact.
 
-Pat is a cross platform Winlink client with basic messaging capabilities.
+## Why a fork?
 
-It is the primary sandbox/prototype application for the [wl2k-go](https://github.com/la5nta/wl2k-go) project, and provides both a command line interface and a responsive (mobile-friendly) web interface.
+See [tuxlink ADR 0011 — Fork Pat as `tuxlink-pat`](https://github.com/cameronzucker/tuxlink/blob/feat/v0.0.1/docs/adr/0011-fork-pat-for-tuxlink.md) for the full architectural decision and reasoning.
 
-It is mainly developed for Linux, but is also known to run on OS X, Windows and Android.
+Short version: upstream Pat has known limitations (e.g., plaintext WL2K passwords in `config.json`) that tuxlink works around case-by-case in the tuxlink call sites. As those workarounds accumulate, fixing the limitations at the engine layer becomes cheaper than continuing to bandage tuxlink. The fork is the workshop for those engine-layer fixes; patches that fit upstream's accepted scope are submitted to `la5nta/pat` as PRs after they ship here.
 
-#### Features
-* Message composer/reader (basic mailbox functionality).
-* Auto-shrink image attachments.
-* Post position reports with location from local GPS, browser location or manual entry.
-* Rig control (using hamlib).
-* CRON-like syntax for execution of scheduled commands (e.g. QSY or connect).
-* Built in http-server with web interface (mobile friendly).
-* Git style command line interface.
-* Listen for P2P connections using multiple modes concurrently.
-* AX.25, telnet, PACTOR and ARDOP support.
-* Experimental gzip message compression (See "Gzip experiment" below).
+## Repository conventions
 
-##### Example
+- **Default branch:** `master` (inherited from upstream; tracks upstream's default-branch name).
+- **Per-patch branches:** `patch-<slug>` or `<bd-id>/<slug>` (mirrors tuxlink's per-task-branch convention).
+- **Merge mode:** merge-commit (no fast-forward); no squash; **branches RETAINED on merge** (NOT deleted — needed for upstream-PR cherry-pick portability per ADR 0011 §4).
+- **Issue tracker:** GitHub Issues (this repo; `bd` is tuxlink-only).
+
+## Workflow per fork patch
+
+The full pipeline per patch is `superpowers:build-robust-features` (brainstorm → 5-round adrev with ≥1 cross-provider Codex → `writing-plans-enhanced` → `plan-review-cycle` → TDD impl → Codex on impl diff → PR). See tuxlink's ADR 0011 §3 for the discipline.
+
+The opportunistic-sync model means upstream is merged into `master` at patch time, not on a separate schedule. Per-patch workflow:
+
+```bash
+# 1. Claim the patch's bd issue + create a worktree on tuxlink-pat
+bd update <issue-id> --claim
+git worktree add -b patch-<slug> /path/to/worktree origin/master
+
+# 2. Add upstream remote if missing (idempotent)
+cd /path/to/worktree
+git remote get-url upstream > /dev/null 2>&1 \
+  || git remote add upstream https://github.com/la5nta/pat.git
+
+# 3. Verify upstream's current default-branch name (do NOT hardcode 'master')
+UPSTREAM_BRANCH=$(gh api repos/la5nta/pat --jq '.default_branch')
+echo "Upstream default branch: $UPSTREAM_BRANCH"
+
+# 4. Opportunistic sync — fetch + merge upstream into this patch branch
+git fetch upstream
+git merge upstream/"$UPSTREAM_BRANCH"
+# Resolve conflicts here (within the patch's brainstorm/plan, NOT auto-rollback)
+
+# 5. Run the full build-robust-features pipeline on the patch
+# (brainstorm → 5-round adrev → writing-plans-enhanced → plan-review-cycle →
+#  TDD impl → Codex on impl diff)
+
+# 6. Push + open PR against master (NOT --delete-branch on merge)
+git push -u origin patch-<slug>
+gh pr create --base master --head patch-<slug> ...
+
+# 7. Operator merges via gh UI or:
+gh pr merge <PR#> --merge   # NO --delete-branch (cherry-pick needs the branch)
+
+# 8. Tuxlink side: update the submodule pin to the new tuxlink-pat commit
+#    (this is a separate PR against tuxlink/feat/v0.0.1)
 ```
-martinhpedersen@duo:~$ pat interactive
-> listen winmor,telnet-p2p,ax25
-2015/02/03 10:33:10 Listening for incoming traffic (winmor,telnet-p2p,ax25)...
-> connect winmor:///LA3F
-2015/02/03 10:34:28 Connecting to winmor:LA3F...
-2015/02/03 10:34:33 Connected to WINMOR:LA3F
-RMS Trimode 1.3.3.0 Follo.SE Oslo. Pactor & Winmor Hybrid Gateway
-LA5NTA has 117 minutes remaining with LA3F
-[WL2K-2.8.4.8-B2FWIHJM$]
-Wien CMS via LA3F >
->FF
-FC EM FOYNU8AKXX59 260 221 0
-F> 68
-1 proposal(s) received
-Accepting FOYNU8AKXX59
-Receiving [//WL2K test til linux] [offset 0]
->FF
-FQ
-Waiting for remote node to close the connection...
-> _
+
+## Upstream contribution policy
+
+For each fork patch:
+
+- **If the patch is a bug fix or generally-useful feature:** submit a PR to upstream `la5nta/pat` after the patch ships here. Wait for upstream review.
+- **If upstream accepts:** drop the fork-side patch on the next upstream-merge cycle.
+- **If upstream declines** or the patch is tuxlink-specific by design (e.g., a tuxlink-IPC primitive Pat upstream wouldn't want): keep the patch in the fork indefinitely.
+
+See tuxlink ADR 0011 §4 for the full contribution policy.
+
+## Build
+
+Pat builds via `bash make.bash` (NOT bare `go build`). Requires Go 1.24+ per `go.mod` and libax25-dev on Linux for full AX.25 hardware modem support (optional; Pat builds without it but with reduced functionality).
+
+```bash
+# Linux (Debian/Ubuntu):
+apt install golang-go libax25-dev
+
+# Build:
+SKIP_TESTS=1 bash make.bash
+# Produces ./pat in the repo root.
 ```
 
-### Gzip experiment
+For tuxlink consumers: tuxlink's `src-tauri/build.rs` invokes this same `make.bash` from the submodule when building tuxlink's release profile.
 
-Gzip message compression has been added as an experimental B2F extension. The extension is implemented as a backwards compatible alternative to the ancient LZHUF compression.
+## License
 
-This experiment is enabled by default and sessions between two Pat nodes (or other software supporting this B2F extension) will use gzip compression when transferring messages.
-
-For more information, see <https://github.com/la5nta/wl2k-go#gzip-experiment>.
-
-## Copyright/License
-
-Copyright (c) 2020 Martin Hebnes Pedersen LA5NTA
-
-### Contributors (alphabetical)
-
-* AB3E - Justin Overfelt
-* DL1THM - Torsten Harenberg
-* HB9GPA - Matthias Renner
-* K0RET - Ryan Turner
-* K0SWE - Chris Keller
-* KD8DRX - Will Davidson
-* KE8HMG - Andrew Huebner
-* KI7RMJ - Rainer Grosskopf
-* KM6LBU - Robert Hernandez
-* LA3QMA - Kai Günter Brandt
-* LA4TTA - Erlend Grimseid
-* LA5NTA - Martin Hebnes Pedersen
-* N2YGK - Alan Crosswell
-* VE7GNU - Doug Collinge
-* W6IPA  - JC Martin
-* WY2K - Benjamin Seidenberg
-
-## Thanks to
-
-The JNOS developers for the properly maintained lzhuf implementation, as well as the original author Haruyasu Yoshizaki.
-
-The paclink-unix team (Nicholas S. Castellano N2QZ and others) - reference implementation
-
-Amateur Radio Safety Foundation, Inc. - The Winlink 2000 project
-
-F6FBB Jean-Paul ROUBELAT - the FBB forwarding protocol
-
-_Pat/wl2k-go is not affiliated with The Winlink Development Team nor the Winlink 2000 project [http://winlink.org]._
+This fork preserves upstream Pat's MIT license. See [LICENSE](LICENSE).
