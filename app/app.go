@@ -227,11 +227,6 @@ func (a *App) Run(ctx context.Context, cmd Command, args []string) {
 	// Ensure mycall is all upper case.
 	a.options.MyCall = strings.ToUpper(a.options.MyCall)
 
-	// Don't use config password if we don't use config mycall
-	if !strings.EqualFold(a.options.MyCall, a.config.MyCall) {
-		a.config.SecureLoginPassword = ""
-	}
-
 	if a.options.Listen == "" && len(a.config.Listen) > 0 {
 		a.options.Listen = strings.Join(a.config.Listen, ",")
 	}
