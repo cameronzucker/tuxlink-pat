@@ -46,3 +46,18 @@ jobs:
         run: go tool govulncheck ./...
       - name: Build
         run: ./make.bash
+  integration:
+    runs-on: ubuntu-22.04   # PINNED per spec §3.6 (R1 F4: floating image = silent CI rot)
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+      - name: Install keyring dependencies
+        run: sudo apt install -y libsecret-1-dev gnome-keyring dbus-x11
+      - name: Run integration tests in D-Bus session
+        run: |
+          dbus-run-session -- bash -c '
+            echo "" | gnome-keyring-daemon --unlock --replace --daemonize --components=secrets
+            go test -tags=integration ./internal/credstore/...
+          '
