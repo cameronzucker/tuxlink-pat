@@ -10,6 +10,7 @@ import (
 
 	"github.com/la5nta/pat/app"
 	"github.com/la5nta/pat/internal/cmsapi"
+	"github.com/la5nta/pat/internal/credstore"
 )
 
 const (
@@ -36,12 +37,18 @@ func AccountHandle(ctx context.Context, app *app.App, args []string) {
 	}
 }
 
-// getPasswordForCallsign gets the password for the specified callsign
-// It tries the configured SecureLoginPassword first, then prompts if not available
+// getPasswordForCallsign gets the password for the specified callsign.
+// It tries the OS keyring first via credstore.Get, then falls back to
+// prompting via promptHub on miss/error. The SIGINT-handler select
+// branch is preserved (plan-review R2 F3 deferred-finding) so the
+// interactive prompt remains cancellable.
 func getPasswordForCallsign(ctx context.Context, a *app.App, callsign string) string {
-	password := a.Config().SecureLoginPassword
-	if password != "" {
-		return password
+	pw, found, err := credstore.Get(callsign)
+	if found && err == nil {
+		return pw
+	}
+	if err != nil {
+		log.Printf("credstore.Get: %v (falling back to prompt)", err)
 	}
 
 	select {
