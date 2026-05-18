@@ -6,6 +6,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/la5nta/pat/api/types"
 	"github.com/la5nta/pat/internal/buildinfo"
+	"github.com/la5nta/pat/internal/credstore"
 
 	"github.com/la5nta/wl2k-go/fbb"
 )
@@ -171,24 +173,10 @@ func (a *App) sessionExchange(conn net.Conn, targetCall string, master bool) err
 		session.SetMOTD(a.config.MOTD...)
 	}
 
-	// Handle secure login
+	// Handle secure login — delegates to package-level secureLoginLookup
+	// for testability. Per spec §3.3 + §3.5 + §4.7.
 	session.SetSecureLoginHandleFunc(func(addr fbb.Address) (string, error) {
-		if addr.Addr == a.options.MyCall && a.config.SecureLoginPassword != "" {
-			return a.config.SecureLoginPassword, nil
-		}
-		for _, aux := range a.config.AuxAddrs {
-			if !addr.EqualString(aux.Address) {
-				continue
-			}
-			switch {
-			case aux.Password != nil:
-				return *aux.Password, nil
-			case a.config.SecureLoginPassword != "":
-				return a.config.SecureLoginPassword, nil
-			}
-		}
-		resp := <-a.promptHub.Prompt(context.Background(), time.Minute, PromptKindPassword, "Enter secure login password for "+addr.String())
-		return resp.Value, resp.Err
+		return secureLoginLookup(context.Background(), addr, a.promptHub)
 	})
 
 	for _, addr := range a.config.AuxAddrs {
@@ -349,4 +337,60 @@ func (s StatusUpdate) UpdateStatus(stat fbb.Status) {
 		fmt.Println("")
 	}
 	os.Stdout.Sync()
+}
+
+// promptHubInterface lets us mock the promptHub in tests without taking on
+// the full app.App fixture. Production code satisfies this via the real
+// *PromptHub.
+type promptHubInterface interface {
+	Prompt(ctx context.Context, timeout time.Duration, kind PromptKind, message string, options ...PromptOption) <-chan PromptResponse
+}
+
+// secureLoginLookup encapsulates the keyring-then-promptHub credential
+// resolution for an incoming fbb.Address. Extracted from the inline
+// SetSecureLoginHandleFunc callback for testability.
+//
+// Per spec §3.3:
+//   - SMTP-proto addresses skip credstore (addr.Addr is full email, not callsign
+//     per fbb.AddressFromString — verified at fbb/message.go:564)
+//   - empty/whitespace addr.Addr skips credstore
+//   - credstore lookup uses normalized bare callsign
+//   - on miss/locked/unavailable: log + fall through to promptHub
+//   - NO AuxAddr-fallback-to-primary (per §4.7)
+func secureLoginLookup(ctx context.Context, addr fbb.Address, ph promptHubInterface) (string, error) {
+	// Step 1: SMTP-proto skip — addr.Addr is full email, not a callsign.
+	if addr.Proto != "" {
+		return promptForPassword(ctx, ph, addr)
+	}
+	// Step 2: normalize + short-circuit on empty.
+	account, ok := credstore.NormalizeAccount(addr.Addr)
+	if !ok {
+		return promptForPassword(ctx, ph, addr)
+	}
+	// Step 3: credstore lookup.
+	pw, found, err := credstore.Get(account)
+	if err != nil {
+		switch {
+		case errors.Is(err, credstore.ErrLocked):
+			log.Printf("level=warn msg=\"credstore: keyring locked; falling back to prompt\" callsign=%s", account)
+		case errors.Is(err, credstore.ErrUnavailable):
+			log.Printf("level=error msg=\"credstore: keyring backend unavailable; falling back to prompt\" callsign=%s err=%q", account, err.Error())
+		default:
+			log.Printf("level=error msg=\"credstore: unclassified error; falling back to prompt\" callsign=%s err=%q", account, err.Error())
+		}
+		return promptForPassword(ctx, ph, addr)
+	}
+	if !found {
+		// Clean miss; silent fall-through per spec §3.5.
+		return promptForPassword(ctx, ph, addr)
+	}
+	return pw, nil
+}
+
+// promptForPassword issues a password prompt via the promptHub for the
+// given address. Shared helper between the SMTP-skip, empty-addr, and
+// credstore-miss branches of secureLoginLookup.
+func promptForPassword(ctx context.Context, ph promptHubInterface, addr fbb.Address) (string, error) {
+	resp := <-ph.Prompt(ctx, time.Minute, PromptKindPassword, "Enter secure login password for "+addr.String())
+	return resp.Value, resp.Err
 }

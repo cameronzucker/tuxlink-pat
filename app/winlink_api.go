@@ -12,6 +12,7 @@ import (
 
 	"github.com/la5nta/pat/internal/buildinfo"
 	"github.com/la5nta/pat/internal/cmsapi"
+	"github.com/la5nta/pat/internal/credstore"
 	"github.com/la5nta/pat/internal/debug"
 	"github.com/la5nta/pat/internal/directories"
 )
@@ -69,7 +70,15 @@ func (a *App) checkPasswordRecoveryEmailIsSet(ctx context.Context) {
 	const interval = 14 * 24 * time.Hour
 	err := DoIfElapsed(a.Options().MyCall, "pw_recovery_email_check", interval, func() error {
 		debug.Printf("Checking if winlink.org password recovery email is set...")
-		set, err := passwordRecoveryEmailSet(ctx, a.Options().MyCall, a.Config().SecureLoginPassword)
+		// API context: no promptHub fallback. Surface a clear error on miss/error.
+		pw, found, err := credstore.Get(a.Options().MyCall)
+		if err != nil {
+			return fmt.Errorf("password recovery requires keyring credentials: %w (use the tuxlink wizard to set credentials)", err)
+		}
+		if !found {
+			return fmt.Errorf("password recovery requires keyring credentials: not set (use the tuxlink wizard to set credentials)")
+		}
+		set, err := passwordRecoveryEmailSet(ctx, a.Options().MyCall, pw)
 		if err != nil {
 			return err
 		}

@@ -2,9 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/la5nta/pat/internal/cmsapi"
+	"github.com/la5nta/pat/internal/credstore"
 )
 
 func (h Handler) winlinkAccountRegistrationHandler(w http.ResponseWriter, r *http.Request) {
@@ -62,10 +64,19 @@ func (h Handler) winlinkPasswordRecoveryEmailHandler(w http.ResponseWriter, r *h
 	var (
 		ctx      = r.Context()
 		callsign = h.Options().MyCall
-		password = h.Config().SecureLoginPassword
 	)
-	if callsign == "" || password == "" {
-		http.Error(w, "Missing callsign or password in config", http.StatusBadRequest)
+	if callsign == "" {
+		http.Error(w, "Missing callsign in config", http.StatusBadRequest)
+		return
+	}
+	// API context: no promptHub fallback. Surface a clear error on miss/error.
+	password, found, err := credstore.Get(callsign)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("keyring error: %v (use the tuxlink wizard to set credentials)", err), http.StatusServiceUnavailable)
+		return
+	}
+	if !found {
+		http.Error(w, "no keyring-stored password (use the tuxlink wizard to set credentials)", http.StatusServiceUnavailable)
 		return
 	}
 

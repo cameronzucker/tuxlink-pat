@@ -23,7 +23,6 @@ import (
 	"github.com/la5nta/pat/internal/buildinfo"
 	"github.com/la5nta/pat/internal/gpsd"
 	"github.com/la5nta/pat/internal/patapi"
-	"github.com/la5nta/pat/web"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -125,9 +124,6 @@ func NewHandler(app *app.App) *Handler {
 	r.HandleFunc("/api/winlink-account/registration", h.winlinkAccountRegistrationHandler).Methods("GET", "POST")
 
 	r.HandleFunc("/ws", h.wsHandler)
-	r.PathPrefix("/ui").Handler(web.UIHandler(h.Options().MyCall))
-	r.PathPrefix("/dist").Handler(web.DistHandler())
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/ui", http.StatusFound) })
 
 	return h
 }
@@ -401,8 +397,6 @@ func (h Handler) newReleaseCheckHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h Handler) configHandler(w http.ResponseWriter, r *http.Request) {
-	const RedactedPassword = "[REDACTED]"
-
 	currentConfig, err := app.LoadConfig(h.Options().ConfigPath, cfg.DefaultConfig)
 	if err != nil {
 		log.Println(err)
@@ -411,10 +405,6 @@ func (h Handler) configHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "GET" {
-		if currentConfig.SecureLoginPassword != "" {
-			// Redact password before sending over unsafe channel.
-			currentConfig.SecureLoginPassword = RedactedPassword
-		}
 		json.NewEncoder(w).Encode(currentConfig)
 		return
 	}
@@ -429,11 +419,6 @@ func (h Handler) configHandler(w http.ResponseWriter, r *http.Request) {
 	if newConfig.GPSd.EnableHTTP != currentConfig.GPSd.EnableHTTP {
 		http.Error(w, "GPSd EnableHTTP setting cannot be changed via web interface for security reasons. Please edit the configuration file manually.", http.StatusForbidden)
 		return
-	}
-
-	// Reset redacted password if it was unmodified (to retain old value)
-	if newConfig.SecureLoginPassword == RedactedPassword {
-		newConfig.SecureLoginPassword = currentConfig.SecureLoginPassword
 	}
 
 	if err := app.WriteConfig(newConfig, h.Options().ConfigPath); err != nil {

@@ -82,6 +82,22 @@ SKIP_TESTS=1 bash make.bash
 
 For tuxlink consumers: tuxlink's `src-tauri/build.rs` invokes this same `make.bash` from the submodule when building tuxlink's release profile.
 
+## Credentials
+
+tuxlink-pat reads WL2K passwords from the OS keyring (`secret-service` on Linux Gnome/KDE, `Keychain` on macOS, `CredentialManager` on Windows) via `github.com/zalando/go-keyring`. Credentials are NOT stored in `config.json`.
+
+**Setting credentials:** use the [tuxlink wizard](https://github.com/cameronzucker/tuxlink). The wizard writes to the keyring under `(service="tuxlink-pat", account="<normalized-bare-callsign>")` (callsign trimmed and uppercased on both writer and reader sides).
+
+**Standalone Pat usage:** if you want a standalone CLI Pat without the tuxlink wizard, use upstream [la5nta/pat](https://github.com/la5nta/pat) which retains the `config.json` password storage model. tuxlink-pat is opinionated about keyring-only storage and is NOT a drop-in replacement for upstream Pat.
+
+**Tested platform:** Linux. The keyring code uses zalando/go-keyring's cross-platform API and will compile + run on macOS and Windows, but those platforms are not tested in tuxlink v0.0.1. Future tuxlink platform expansions inherit the same code path.
+
+**Multi-account:** each callsign gets its own keyring entry. AuxAddrs each get their own entry (manually populated via OS tools like Seahorse or `secret-tool` until tuxlink's multi-account wizard UX ships). There is NO fallback to the primary callsign's password — each callsign stands alone.
+
+**Locked / missing keyring:** if the keyring is locked or no entry exists for the callsign, Pat falls through to the existing 60-second password prompt (`PromptKindPassword` via promptHub) — preserves EmComm stand-up scenarios. P2P operations don't read the keyring at all.
+
+For full design rationale, see the [cred-handling design spec](https://github.com/cameronzucker/tuxlink/blob/main/docs/superpowers/specs/2026-05-18-cred-handling-design.md) in the tuxlink repo.
+
 ## License
 
 This fork preserves upstream Pat's MIT license. See [LICENSE](LICENSE).
