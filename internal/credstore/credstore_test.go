@@ -1,6 +1,7 @@
 package credstore_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/la5nta/pat/internal/credstore"
@@ -126,6 +127,47 @@ func TestGet_WhitespaceCallsign_ShortCircuit(t *testing.T) {
 	}
 	if pw != "" {
 		t.Errorf("Get: pw=%q, want empty", pw)
+	}
+}
+
+func TestGet_ErrLockedClassified(t *testing.T) {
+	// Per zalando/go-keyring's mock support, MockInitWithError sets a
+	// global error that all subsequent Set/Get/Delete calls return.
+	// We inject a synthetic "locked"-style error and verify credstore
+	// classifies it as ErrLocked sentinel.
+	lockedErr := errors.New("default keyring is locked")
+	keyring.MockInitWithError(lockedErr)
+	t.Cleanup(keyring.MockInit) // restore to non-error mock
+
+	pw, found, err := credstore.Get("KK6XYZ")
+	if found {
+		t.Errorf("Get: found=true on locked, want false")
+	}
+	if pw != "" {
+		t.Errorf("Get: pw=%q, want empty", pw)
+	}
+	if !errors.Is(err, credstore.ErrLocked) {
+		t.Errorf("Get err: %v (errors.Is(ErrLocked) = false); want ErrLocked sentinel", err)
+	}
+}
+
+func TestGet_ErrUnavailableClassified(t *testing.T) {
+	// D-Bus unreachable / no-secret-service is a different error class —
+	// distinguishes "you forgot to install gnome-keyring" from "you
+	// haven't unlocked the keyring yet."
+	unavailErr := errors.New("dbus: cannot connect to session bus: address not set")
+	keyring.MockInitWithError(unavailErr)
+	t.Cleanup(keyring.MockInit)
+
+	pw, found, err := credstore.Get("KK6XYZ")
+	if found {
+		t.Errorf("Get: found=true on D-Bus error, want false")
+	}
+	if pw != "" {
+		t.Errorf("Get: pw=%q, want empty", pw)
+	}
+	if !errors.Is(err, credstore.ErrUnavailable) {
+		t.Errorf("Get err: %v; want ErrUnavailable sentinel", err)
 	}
 }
 

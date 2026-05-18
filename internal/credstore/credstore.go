@@ -6,9 +6,26 @@ package credstore
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/zalando/go-keyring"
+)
+
+// Exported error sentinels for caller error-classification per spec §3.5.
+// Callers use errors.Is(err, ErrLocked) / errors.Is(err, ErrUnavailable)
+// to dispatch on log level and fallback behavior.
+var (
+	// ErrLocked indicates the OS keyring is locked (operator must unlock via
+	// OS tools — Seahorse, Keychain Access, etc.). Interactive callers log
+	// at WARN level and fall through to promptHub.
+	ErrLocked = errors.New("credstore: keyring locked")
+
+	// ErrUnavailable indicates D-Bus is unreachable or secret-service is not
+	// installed. Interactive callers log at ERROR level and fall through to
+	// promptHub. Configuration problem; operator needs to install
+	// gnome-keyring / kwallet-pam or equivalent.
+	ErrUnavailable = errors.New("credstore: keyring backend unavailable")
 )
 
 // ServiceName is the OS-keyring service-string under which tuxlink-pat stores
@@ -64,5 +81,23 @@ func Get(callsign string) (string, bool, error) {
 	return pw, true, nil
 }
 
-// classifyErr stub for now; full classification added in Task 2.11.
-func classifyErr(err error) error { return err }
+// classifyErr maps zalando/go-keyring's per-backend errors to our exported
+// sentinels by matching substrings in the error string. Per spec §3.2 + R3 F7
+// (cross-platform ErrNotFound mapping is not contractually guaranteed; we
+// classify defensively).
+func classifyErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	s := err.Error()
+	// Linux secret-service / gnome-keyring "locked" markers:
+	if strings.Contains(s, "is locked") || strings.Contains(s, "Locked") {
+		return fmt.Errorf("%w: %v", ErrLocked, err)
+	}
+	// D-Bus connection markers (Linux):
+	if strings.Contains(s, "cannot connect to") || strings.Contains(s, "dbus") {
+		return fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	// Unclassified; return raw for caller logging.
+	return err
+}
