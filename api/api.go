@@ -23,7 +23,6 @@ import (
 	"github.com/la5nta/pat/internal/buildinfo"
 	"github.com/la5nta/pat/internal/gpsd"
 	"github.com/la5nta/pat/internal/patapi"
-	"github.com/la5nta/pat/web"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -125,9 +124,6 @@ func NewHandler(app *app.App) *Handler {
 	r.HandleFunc("/api/winlink-account/registration", h.winlinkAccountRegistrationHandler).Methods("GET", "POST")
 
 	r.HandleFunc("/ws", h.wsHandler)
-	r.PathPrefix("/ui").Handler(web.UIHandler(h.Options().MyCall))
-	r.PathPrefix("/dist").Handler(web.DistHandler())
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/ui", http.StatusFound) })
 
 	return h
 }
