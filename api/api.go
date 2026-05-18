@@ -401,8 +401,6 @@ func (h Handler) newReleaseCheckHandler(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h Handler) configHandler(w http.ResponseWriter, r *http.Request) {
-	const RedactedPassword = "[REDACTED]"
-
 	currentConfig, err := app.LoadConfig(h.Options().ConfigPath, cfg.DefaultConfig)
 	if err != nil {
 		log.Println(err)
@@ -411,10 +409,6 @@ func (h Handler) configHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "GET" {
-		if currentConfig.SecureLoginPassword != "" {
-			// Redact password before sending over unsafe channel.
-			currentConfig.SecureLoginPassword = RedactedPassword
-		}
 		json.NewEncoder(w).Encode(currentConfig)
 		return
 	}
@@ -429,11 +423,6 @@ func (h Handler) configHandler(w http.ResponseWriter, r *http.Request) {
 	if newConfig.GPSd.EnableHTTP != currentConfig.GPSd.EnableHTTP {
 		http.Error(w, "GPSd EnableHTTP setting cannot be changed via web interface for security reasons. Please edit the configuration file manually.", http.StatusForbidden)
 		return
-	}
-
-	// Reset redacted password if it was unmodified (to retain old value)
-	if newConfig.SecureLoginPassword == RedactedPassword {
-		newConfig.SecureLoginPassword = currentConfig.SecureLoginPassword
 	}
 
 	if err := app.WriteConfig(newConfig, h.Options().ConfigPath); err != nil {
