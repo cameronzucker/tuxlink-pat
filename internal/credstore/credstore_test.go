@@ -171,6 +171,35 @@ func TestGet_ErrUnavailableClassified(t *testing.T) {
 	}
 }
 
+func TestGet_ErrServiceUnknownClassified(t *testing.T) {
+	// Per parent Codex round on Phase 2 (2026-05-18): when D-Bus is
+	// reachable but org.freedesktop.secrets is not installed (e.g., no
+	// gnome-keyring / kwallet-pam), godbus returns a different error
+	// shape than the "cannot connect to" / "dbus" markers. Verify
+	// ServiceUnknown is classified as ErrUnavailable.
+	svcUnknownErr := errors.New("The name org.freedesktop.secrets was not provided by any .service files")
+	keyring.MockInitWithError(svcUnknownErr)
+	t.Cleanup(keyring.MockInit)
+
+	_, _, err := credstore.Get("KK6XYZ")
+	if !errors.Is(err, credstore.ErrUnavailable) {
+		t.Errorf("Get err: %v; want ErrUnavailable sentinel (ServiceUnknown should classify as unavailable)", err)
+	}
+}
+
+func TestGet_ErrServiceUnknownByErrorName(t *testing.T) {
+	// Alternate ServiceUnknown error shape: error name without the
+	// human-readable message tail.
+	svcUnknownErr := errors.New("org.freedesktop.DBus.Error.ServiceUnknown")
+	keyring.MockInitWithError(svcUnknownErr)
+	t.Cleanup(keyring.MockInit)
+
+	_, _, err := credstore.Get("KK6XYZ")
+	if !errors.Is(err, credstore.ErrUnavailable) {
+		t.Errorf("Get err: %v; want ErrUnavailable sentinel", err)
+	}
+}
+
 func TestGet_CasingNormalization(t *testing.T) {
 	// Convergent adrev finding R2 F1 + R4 P2: wizard may write lowercase
 	// callsign; Pat reads via addr.Addr which is uppercased; without

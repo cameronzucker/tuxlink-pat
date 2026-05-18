@@ -94,8 +94,15 @@ func classifyErr(err error) error {
 	if strings.Contains(s, "is locked") || strings.Contains(s, "Locked") {
 		return fmt.Errorf("%w: %v", ErrLocked, err)
 	}
-	// D-Bus connection markers (Linux):
-	if strings.Contains(s, "cannot connect to") || strings.Contains(s, "dbus") {
+	// D-Bus backend-unavailable markers (Linux). Three classes:
+	//   - "cannot connect to" / "dbus": D-Bus session bus unreachable
+	//   - "ServiceUnknown" / "org.freedesktop.secrets": D-Bus reachable but
+	//     secret-service implementation not installed (e.g., no gnome-keyring
+	//     or kwallet-pam; godbus returns org.freedesktop.DBus.Error.ServiceUnknown
+	//     with message "The name org.freedesktop.secrets was not provided by any
+	//     .service files"). Per parent Codex round on Phase 2 (2026-05-18).
+	if strings.Contains(s, "cannot connect to") || strings.Contains(s, "dbus") ||
+		strings.Contains(s, "ServiceUnknown") || strings.Contains(s, "org.freedesktop.secrets") {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	// Unclassified; return raw for caller logging.
