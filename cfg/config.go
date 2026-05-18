@@ -19,27 +19,34 @@ const (
 )
 
 type AuxAddr struct {
-	Address  string
-	Password *string
+	Address string
 }
 
+// MarshalJSON always emits the Address as a JSON string. Per spec §3.2 +
+// cred-refactor decision §4.7: AuxAddr never carries a password; the colon-
+// suffix form ("CALL:password") is legacy-readable-only and never re-emitted.
 func (a AuxAddr) MarshalJSON() ([]byte, error) {
-	if a.Password == nil {
-		return json.Marshal(a.Address)
-	}
-	return json.Marshal(a.Address + ":" + *a.Password)
+	return json.Marshal(a.Address)
 }
 
+// UnmarshalJSON accepts both:
+//   - the canonical string form: "CALL"
+//   - the legacy colon-suffix form: "CALL:password" (the password portion
+//     is silently dropped — NOT stored, NOT logged, NOT re-emitted).
+//
+// Per spec §3.2: convergent R1 + R3 + R4 adrev finding — removing this
+// custom UnmarshalJSON outright would break all configs with auxiliary_addresses,
+// including valid plain "CALL" entries (since the wire schema is JSON string,
+// not struct).
 func (a *AuxAddr) UnmarshalJSON(p []byte) error {
-	var str string
-	if err := json.Unmarshal(p, &str); err != nil {
+	var s string
+	if err := json.Unmarshal(p, &s); err != nil {
 		return err
 	}
-	parts := strings.SplitN(str, ":", 2)
-	a.Address = parts[0]
-	if len(parts) > 1 {
-		a.Password = &parts[1]
+	if i := strings.IndexByte(s, ':'); i >= 0 {
+		s = s[:i] // drop colon-suffix; never preserve password
 	}
+	a.Address = s
 	return nil
 }
 
@@ -47,15 +54,12 @@ type Config struct {
 	// This station's callsign.
 	MyCall string `json:"mycall"`
 
-	// Secure login password used when a secure login challenge is received.
-	//
-	// The user is prompted if this is undefined.
-	SecureLoginPassword string `json:"secure_login_password"`
-
 	// Auxiliary callsigns to fetch email on behalf of.
 	//
-	// Passwords can optionally be specified by appending :MYPASS (e.g. EMCOMM-1:MyPassw0rd).
-	// If no password is specified, the SecureLoginPassword is used.
+	// Legacy "CALL:password" entries are accepted on parse for backward
+	// compatibility but the password portion is silently dropped (see
+	// AuxAddr.UnmarshalJSON). Per spec §3.2: credentials live in the OS
+	// keyring exclusively.
 	AuxAddrs []AuxAddr `json:"auxiliary_addresses"`
 
 	// Maidenhead grid square (e.g. JP20qe).
